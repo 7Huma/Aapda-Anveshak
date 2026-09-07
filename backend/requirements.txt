@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+python-dotenv
+earthengine-api
+numpy
+pandas
+scikit-learn
+joblib
+xgboost
