@@ -1,0 +1,3 @@
+# This file keeps the ml/models/saved/ directory tracked by git.
+# Trained model artifacts (.joblib, .json) are gitignored for size reasons.
+# Run the pipeline to regenerate them: python -m ml.pipeline.run_pipeline

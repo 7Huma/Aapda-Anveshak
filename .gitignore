@@ -1,0 +1,93 @@
+# ============================================================
+# Python
+# ============================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+*.spec
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ============================================================
+# Secrets & Credentials
+# ============================================================
+.env
+.env.*
+*.env
+secrets.yaml
+secrets.json
+credentials.json
+*_key.json
+
+# ============================================================
+# ML / Data Science
+# ============================================================
+# Raw datasets (large files - use DVC or storage separately)
+ml/datasets/raw/*.csv
+ml/datasets/raw/*.json
+ml/datasets/raw/*.xlsx
+ml/datasets/raw/*.parquet
+ml/datasets/raw/*.zip
+ml/datasets/raw/*.tar.gz
+
+# Processed large datasets (keep sample, exclude large processed)
+ml/datasets/processed/*.csv
+ml/datasets/processed/*.parquet
+
+# Trained model artifacts (large binaries)
+ml/models/saved/*.pkl
+ml/models/saved/*.joblib
+ml/models/saved/*.json
+ml/models/saved/*.ubj
+ml/models/saved/*.bin
+
+# MLflow / experiment tracking
+mlruns/
+mlartifacts/
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Model caches
+*.cache
+huggingface/
+
+# ============================================================
+# IDE / Editor
+# ============================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ============================================================
+# OS
+# ============================================================
+.DS_Store
+*.log
+*.tmp
