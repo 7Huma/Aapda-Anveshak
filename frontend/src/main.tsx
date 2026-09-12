@@ -39,15 +39,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             element={<LiveWeather />}
           />
 
-          <Route
-            path="/settings"
-            element={
-              <ComingSoon
-                title="Settings"
-                note="Language, notification and offline-mode preferences are coming soon."
-              />
-            }
-          />
+          
 
         </Route>
 
