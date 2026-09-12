@@ -26,7 +26,7 @@ def initialize_earth_engine():
 
     if not EE_PROJECT_ID:
         raise RuntimeError(
-            "EE_PROJECT_ID is missing from backend/.env"
+            "EE_PROJECT_ID is missing from .env"
         )
 
     try:

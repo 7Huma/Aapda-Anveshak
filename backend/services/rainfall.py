@@ -39,23 +39,18 @@ def get_rainfall(
         .select(RAINFALL_BAND)
     )
 
-    count = collection.size().getInfo()
-
-    if count == 0:
-        raise RuntimeError(
-            f"No GSMaP rainfall data available for {lat}, {lng}"
-        )
-
     # Find the latest available observation instead of assuming
     # that Earth Engine has data for the current UTC day.
+    # (This also implicitly tells us if the collection is empty —
+    # aggregate_max on an empty collection returns None, which is
+    # handled below — so a separate upfront count check isn't needed.)
     latest_time = collection.aggregate_max(
         "system:time_start"
     ).getInfo()
 
     if latest_time is None:
         raise RuntimeError(
-            f"Unable to determine latest rainfall observation "
-            f"for {lat}, {lng}"
+            f"No GSMaP rainfall data available for {lat}, {lng}"
         )
 
     latest_date = ee.Date(latest_time)
@@ -98,4 +93,3 @@ def get_rainfall(
         )
 
     return round(float(value), 2)
-

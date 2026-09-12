@@ -9,14 +9,19 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
+    "@vitejs/plugin-react": "^4.3.4",
     "leaflet": "^1.9.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-leaflet": "^4.2.1",
+   "react-router-dom": "^6.26.2",
     "recharts": "^2.15.1",
-    "vite": "latest",
-    "typescript": "~5.6.3"
+    "typescript": "~5.6.3",
+    "vite": "^6.0.7"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@types/leaflet": "^1.9.15",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5"
+  }
 }

@@ -1,10 +1,36 @@
 from datetime import datetime, timezone
+from services.risk import calculate_location_risk
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+from api.routes import router as api_router
+from db import init_db
+from services.alerts import maybe_dispatch_alert
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from services.risk import calculate_location_risk
 
+from fastapi import FastAPI
+
+app = FastAPI()
+
+support_units = [
+    {"name": "Emergency Admin", "available": 12},
+    {"name": "Fire & Rescue", "available": 18},
+    {"name": "Armed Forces", "available": 27},
+    {"name": "Police", "available": 30},
+]
+
+
+@app.get("/api/support-units")
+def get_support_units():
+    return {
+        "units": support_units,
+        "updated_at": datetime.utcnow().isoformat()
+    }
 
 app = FastAPI(
     title="Landslide Risk Monitoring API"
@@ -22,6 +48,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(api_router)
+
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
 
 MONITORING_LOCATIONS = [
     {
@@ -103,20 +135,23 @@ def health():
 
 @app.get("/api/risk/live")
 def live_risk():
-
     locations = []
 
     for location in MONITORING_LOCATIONS:
-
         try:
-            result = calculate_location_risk(
-                location
-            )
+            result = calculate_location_risk(location)
 
             locations.append(result)
 
-        except Exception as exc:
+            try:
+                maybe_dispatch_alert(result)
+            except Exception:
+                logger.exception(
+                    "Alert dispatch failed for location %s",
+                    location.get("id"),
+                )
 
+        except Exception as exc:
             # Don't crash the entire dashboard
             # because one location failed.
             locations.append(
@@ -136,53 +171,8 @@ def live_risk():
 
         "locations": locations,
     }
-@app.get("/api/dashboard/summary")
-def dashboard_summary():
-    return {
-        "source": "Operational Dashboard API",
 
-        "updated_at": datetime.now(
-            timezone.utc
-        ).isoformat(),
 
-        "infrastructure": {
-            "severe": 18,
-            "moderate": 7,
-            "minor": 6,
-            "no_damage": 12
-        },
-
-        "evacuation": {
-            "people_evacuated": 330,
-            "capacity": 820
-        },
-
-        "support_units": [
-            {
-                "name": "Emergency Admin",
-                "available": 12
-            },
-            {
-                "name": "Fire & Rescue",
-                "available": 18
-            },
-            {
-                "name": "Armed Forces",
-                "available": 27
-            },
-            {
-                "name": "Police",
-                "available": 30
-            }
-        ],
-
-        "affected_people": {
-            "critical": 1240,
-            "high": 3820,
-            "medium": 6180,
-            "low": 12450
-        }
-    }
 @app.get("/api/dashboard/summary")
 def dashboard_summary():
     return {

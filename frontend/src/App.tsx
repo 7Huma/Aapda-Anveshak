@@ -1,4 +1,7 @@
+import EonetPanel from './components/EonetPanel';
+import LiveWeather from "./components/LiveWeather";
 import React, { useEffect, useMemo, useState } from 'react';
+import StartSequence from "./components/StartSequence";
 import {
   Circle,
   CircleMarker,
@@ -22,6 +25,14 @@ import {
 } from 'recharts';
 
 import type { LatLngExpression } from 'leaflet';
+
+
+// ============================================================
+// CONFIG
+// ============================================================
+
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
 
 // ============================================================
@@ -152,23 +163,22 @@ const initialLocations: Location[] = [
 
 
 // ============================================================
-// STATIC DASHBOARD DATA
+// LIVE DASHBOARD DATA
 // ============================================================
 
-const infraData = [
-  { name: 'Severe', value: 18 },
-  { name: 'Moderate', value: 7 },
-  { name: 'Minor', value: 6 },
-  { name: 'No damage', value: 12 },
-];
+type InfrastructureRow = {
+  name: string;
+  value: number;
+};
 
-const supportUnits = [
-  ['Emergency Admin', 12],
-  ['Fire & Rescue', 18],
-  ['Armed Forces', 27],
-  ['Police', 30],
-];
+type SupportUnitRow = [string, number];
 
+const EMPTY_INFRA_DATA: InfrastructureRow[] = [
+  { name: 'Severe', value: 0 },
+  { name: 'Moderate', value: 0 },
+  { name: 'Minor', value: 0 },
+  { name: 'No damage', value: 0 },
+];
 
 // ============================================================
 // COLORS
@@ -193,6 +203,10 @@ function App() {
   const [selectedId, setSelectedId] =
     useState<number>(102);
 
+  const selectedLocation = locations.find(
+  (location) => location.id === selectedId
+);
+
   const [layer, setLayer] =
     useState<'terrain' | 'street'>('terrain');
 
@@ -204,7 +218,27 @@ function App() {
 
   const [lastUpdated, setLastUpdated] =
     useState<string | null>(null);
+ 
+  const [nasaEvents, setNasaEvents] = useState<any[]>([]);
+  const [nasaLoading, setNasaLoading] = useState(true);
 
+  const [infraData, setInfraData] =
+    useState<InfrastructureRow[]>(EMPTY_INFRA_DATA);
+
+  const [supportUnits, setSupportUnits] =
+    useState<SupportUnitRow[]>([]);
+
+  // Live evacuation figures from /api/dashboard/summary.
+  // No demo numbers are used.
+  const [evacuationEvacuated, setEvacuationEvacuated] =
+    useState(0);
+
+  const [evacuationCapacity, setEvacuationCapacity] =
+    useState(0);
+
+  const [dashboardLoading, setDashboardLoading] =
+    useState(true);
+  const [showStart, setShowStart] = useState(true);
 
   // ============================================================
   // FETCH LIVE DATA
@@ -215,7 +249,7 @@ function App() {
       setLoading(true);
 
       const response = await fetch(
-        'http://localhost:8000/api/risk/live'
+        `${API_BASE_URL}/api/risk/live`
       );
 
       if (!response.ok) {
@@ -223,6 +257,7 @@ function App() {
           `Backend returned ${response.status}`
         );
       }
+  
 
       const data = await response.json();
 
@@ -267,24 +302,254 @@ function App() {
 
 
   // ============================================================
-  // LOAD LIVE DATA + REFRESH EVERY 5 MINUTES
-  // ============================================================
+// FETCH LIVE DASHBOARD SUMMARY
+// Infrastructure/support values come ONLY from the backend.
+// No hardcoded demo numbers are used.
+// ============================================================
 
-  useEffect(() => {
-    fetchLiveData();
+const fetchDashboardData = async () => {
+  try {
+    setDashboardLoading(true);
 
-    const interval = window.setInterval(
-      fetchLiveData,
-      5 * 60 * 1000
+    const response = await fetch(
+      `${API_BASE_URL}/api/dashboard/summary`
     );
 
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, []);
+    if (!response.ok) {
+      throw new Error(
+        `Dashboard API returned ${response.status}`
+      );
+    }
+
+    const data = await response.json();
+
+    // ------------------------------------------------------------
+    // INFRASTRUCTURE
+    // ------------------------------------------------------------
+    const rawInfrastructure =
+      data.infrastructure ??
+      data.infrastructure_affected ??
+      data.infrastructure_damage ??
+      [];
+
+    const infrastructure = Array.isArray(rawInfrastructure)
+      ? rawInfrastructure
+          .map((item: any) => ({
+            name: String(
+              item.name ?? item.label ?? ''
+            ),
+            value: Number(
+              item.value ?? item.count ?? 0
+            ),
+          }))
+          .filter(
+            (item: InfrastructureRow) =>
+              item.name &&
+              Number.isFinite(item.value)
+          )
+      : Object.entries(rawInfrastructure)
+          .map(([name, value]) => ({
+            name,
+            value: Number(value),
+          }))
+          .filter(
+            (item) =>
+              Number.isFinite(item.value)
+          );
+
+    if (infrastructure.length > 0) {
+      setInfraData(infrastructure);
+    } else {
+      setInfraData(EMPTY_INFRA_DATA);
+    }
+
+    // ------------------------------------------------------------
+    // SUPPORT UNITS
+    // ------------------------------------------------------------
+    const rawSupport =
+      data.support_units ??
+      data.supportUnits ??
+      data.available_support_units ??
+      [];
+
+    const support = Array.isArray(rawSupport)
+      ? rawSupport
+          .map(
+            (item: any) =>
+              [
+                String(
+                  item.name ??
+                  item.label ??
+                  ''
+                ),
+                Number(
+                  item.available ??
+                  item.value ??
+                  item.count ??
+                  0
+                ),
+              ] as SupportUnitRow
+          )
+          .filter(
+            ([name, value]) =>
+              name &&
+              Number.isFinite(value)
+          )
+      : Object.entries(rawSupport)
+          .map(
+            ([name, value]) =>
+              [
+                name,
+                Number(value),
+              ] as SupportUnitRow
+          )
+          .filter(
+            ([, value]) =>
+              Number.isFinite(value)
+          );
+
+    setSupportUnits(support);
+
+    // ------------------------------------------------------------
+    // LIVE EVACUATION DATA
+    // ------------------------------------------------------------
+    const evacuationSource =
+      data.evacuation ??
+      data.evacuations ??
+      data.evacuation_points ??
+      data.evacuation_summary ??
+      {};
+
+    const evacuatedValue = Number(
+      data.people_evacuated ??
+      data.evacuated_people ??
+      data.evacuated ??
+      evacuationSource.people_evacuated ??
+      evacuationSource.evacuated_people ??
+      evacuationSource.evacuated ??
+      evacuationSource.current ??
+      0
+    );
+
+    const capacityValue = Number(
+      data.evacuation_capacity ??
+      data.shelter_capacity ??
+      data.total_evacuation_capacity ??
+      evacuationSource.capacity ??
+      evacuationSource.shelter_capacity ??
+      evacuationSource.total_capacity ??
+      evacuationSource.total ??
+      0
+    );
+
+    setEvacuationEvacuated(
+      Number.isFinite(evacuatedValue) &&
+      evacuatedValue >= 0
+        ? evacuatedValue
+        : 0
+    );
+
+    setEvacuationCapacity(
+      Number.isFinite(capacityValue) &&
+      capacityValue >= 0
+        ? capacityValue
+        : 0
+    );
+
+  } catch (error) {
+    console.error(
+      'Live dashboard summary error:',
+      error
+    );
+
+    // Never fall back to fake numbers.
+    setInfraData(EMPTY_INFRA_DATA);
+    setSupportUnits([]);
+    setEvacuationEvacuated(0);
+    setEvacuationCapacity(0);
+
+  } finally {
+    setDashboardLoading(false);
+  }
+};
 
 
-  // ============================================================
+// ============================================================
+// FETCH SUPPORT UNITS
+// ============================================================
+
+const fetchSupportUnits = async () => {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/support-units`
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `Support API returned ${response.status}`
+      );
+    }
+
+    const data = await response.json();
+
+    const units = Array.isArray(data.units)
+      ? data.units
+          .map(
+            (item: any) =>
+              [
+                String(
+                  item.name ??
+                  item.label ??
+                  ''
+                ),
+                Number(
+                  item.available ??
+                  item.value ??
+                  item.count ??
+                  0
+                ),
+              ] as SupportUnitRow
+          )
+          .filter(
+            ([name, value]) =>
+              name &&
+              Number.isFinite(value)
+          )
+      : [];
+
+    setSupportUnits(units);
+
+  } catch (error) {
+    console.error(
+      'Support units API error:',
+      error
+    );
+
+    setSupportUnits([]);
+  }
+};
+
+
+// ============================================================
+// LOAD LIVE DATA + REFRESH EVERY 5 MINUTES
+// ============================================================
+
+useEffect(() => {
+  fetchLiveData();
+  fetchDashboardData();
+  fetchSupportUnits();
+
+  const interval = window.setInterval(() => {
+    fetchLiveData();
+    fetchDashboardData();
+    fetchSupportUnits();
+  }, 5 * 60 * 1000);
+
+  return () => {
+    window.clearInterval(interval);
+  };
+}, []);
+  //=======================================================
   // SELECTED LOCATION
   // ============================================================
 
@@ -365,7 +630,14 @@ function App() {
   // ============================================================
 
   return (
-    <main className="dashboard-shell">
+    <>
+      {showStart && (
+        <StartSequence
+          onComplete={() => setShowStart(false)}
+        />
+      )}
+
+      <main className="dashboard-shell">
 
       {/* ======================================================
           TOP BAR
@@ -391,15 +663,15 @@ function App() {
 
         <div className="topbar-center">
 
-          <span className="live-dot" />
+          <span className={`live-dot ${loading ? 'updating' : ''}`} />
 
-          {loading
-            ? ' UPDATING'
-            : ' LIVE MONITORING'}
+          <span className="live-status">
+            {loading ? 'UPDATING' : 'LIVE MONITORING'}
+          </span>
 
-          <span className="divider" />
-
-          NORTH-EAST INDIA
+          <span className="topbar-location">
+            {selectedLocation?.name || "NORTH-EAST INDIA"}
+          </span>
 
         </div>
 
@@ -412,9 +684,7 @@ function App() {
             ▱
           </button>
 
-          <button title="Settings">
-            ⚙
-          </button>
+          
         </div>
 
       </header>
@@ -433,79 +703,73 @@ function App() {
 
         <aside className="left-panel panel-stack">
 
-          {/* LEGEND */}
+         {/* LEGEND */}
 
-          <div className="panel legend-panel">
+<div className="panel legend-panel">
 
-            <div className="panel-title">
-              LEGENDA
-            </div>
+  <div className="panel-title">
+    RISK LEGEND
+  </div>
 
-            <div className="legend-section-title">
-              Risk zones
-            </div>
+  <div className="legend-row">
+    <span className="legend-dot critical" />
+    <span>
+      <strong>CRITICAL</strong>
+      <small>Risk ≥ 85</small>
+    </span>
+  </div>
 
-            <div className="legend-row">
-              <span className="legend-dot critical" />
-              Critical
-              <b>75–100</b>
-            </div>
+  <div className="legend-row">
+    <span className="legend-dot high" />
+    <span>
+      <strong>HIGH</strong>
+      <small>Risk 70–84</small>
+    </span>
+  </div>
 
-            <div className="legend-row">
-              <span className="legend-dot high" />
-              High
-              <b>50–74</b>
-            </div>
+  <div className="legend-row">
+    <span className="legend-dot medium" />
+    <span>
+      <strong>MEDIUM</strong>
+      <small>Risk 40–69</small>
+    </span>
+  </div>
 
-            <div className="legend-row">
-              <span className="legend-dot medium" />
-              Medium
-              <b>25–49</b>
-            </div>
+  <div className="legend-row">
+    <span className="legend-dot low" />
+    <span>
+      <strong>LOW</strong>
+      <small>Risk &lt; 40</small>
+    </span>
+  </div>
 
-            <div className="legend-row">
-              <span className="legend-dot low" />
-              Low
-              <b>0–24</b>
-            </div>
+  <div className="legend-divider" />
 
-            <div className="legend-divider" />
+  <button
+    className={`layer-option ${
+      layer === 'terrain' ? 'active' : ''
+    }`}
+    onClick={() => setLayer('terrain')}
+  >
+    <span>▣</span>
+    Terrain / satellite
+  </button>
 
-            <div className="legend-section-title">
-              Map layers
-            </div>
+  <button
+    className={`layer-option ${
+      layer === 'street' ? 'active' : ''
+    }`}
+    onClick={() => setLayer('street')}
+  >
+    <span>⌁</span>
+    Roads & villages
+  </button>
 
-            <button
-              className={`layer-option ${
-                layer === 'terrain'
-                  ? 'active'
-                  : ''
-              }`}
-              onClick={() =>
-                setLayer('terrain')
-              }
-            >
-              <span>▣</span>
-              Terrain / satellite
-            </button>
+</div>
 
-            <button
-              className={`layer-option ${
-                layer === 'street'
-                  ? 'active'
-                  : ''
-              }`}
-              onClick={() =>
-                setLayer('street')
-              }
-            >
-              <span>⌁</span>
-              Roads & villages
-            </button>
-
+            <div className="panel">
+            <EonetPanel />
           </div>
-
-
           {/* AFFECTED */}
 
           <div className="panel affected-panel">
@@ -586,34 +850,75 @@ function App() {
           </div>
 
 
-          {/* LINKS */}
+          {/* DATA REGISTRATION */}
 
           <div className="panel links-panel">
 
             <div className="panel-title centered">
-              DATA REGISTRATION LINKS
+              NER GOVERNMENT HELPLINES
+              <span className="panel-status">OFFICIAL</span>
             </div>
 
-            <div className="link-item">
-              <span>1)</span>
-              Field capacity / infrastructure survey
+            <div className="registration-list">
+
+              <a
+                className="link-item"
+                href="https://necouncil.gov.in/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <span className="link-index">01</span>
+                <span className="link-icon">▣</span>
+
+                <span className="link-copy">
+                  <strong>North Eastern Council</strong>
+                  <small>Government of India · NER coordination</small>
+                </span>
+
+                <span className="link-arrow">↗</span>
+              </a>
+
+              <a
+                className="link-item"
+                href="https://mdoner.gov.in/contactus"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <span className="link-index">02</span>
+                <span className="link-icon">☎</span>
+
+                <span className="link-copy">
+                  <strong>MDoNER — Contact / Assistance</strong>
+                  <small>Ministry of Development of North Eastern Region</small>
+                </span>
+
+                <span className="link-arrow">↗</span>
+              </a>
+
+              <a
+                className="link-item"
+                href="https://services.india.gov.in/service/detail/grievance-redressal-development-of-north-eastern-region-1"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <span className="link-index">03</span>
+                <span className="link-icon">⚠</span>
+
+                <span className="link-copy">
+                  <strong>NER Government Grievance</strong>
+                  <small>Official grievance redressal service</small>
+                </span>
+
+                <span className="link-arrow">↗</span>
+              </a>
+
             </div>
 
-            <div className="link-item">
-              <span>2)</span>
-              Landslide / damage / injury report
+            <div className="registration-footer">
+              <span className="registration-dot"></span>
+              <span>Official Government of India resources</span>
+              <span className="registration-live">LIVE LINK</span>
             </div>
-
-            <div className="link-item">
-              <span>3)</span>
-              Support units / evacuation needs
-            </div>
-
-            <p>
-              Field forms are ready to connect
-              to the backend and can be replaced
-              by live APIs later.
-            </p>
 
           </div>
 
@@ -625,20 +930,6 @@ function App() {
         ==================================================== */}
 
         <section className="map-panel">
-
-          <div className="map-toolbar">
-
-            <span className="map-location">
-              Sikkim • Darjeeling • North Bengal
-            </span>
-
-            <button>⌂</button>
-            <button>☷</button>
-            <button>▱</button>
-            <button>⋮</button>
-
-          </div>
-
 
           <MapContainer
             center={center}
@@ -797,78 +1088,47 @@ function App() {
 
             <div className="verified-layout">
 
-              <div className="severity-chart">
+              <div className="severity-chart severity-pie-chart">
 
                 <ResponsiveContainer
                   width="100%"
-                  height={180}
+                  height={150}
                 >
 
-                  <BarChart
-                    data={severityData}
-                    layout="vertical"
-                    margin={{
-                      left: 0,
-                      right: 12,
-                      top: 10,
-                      bottom: 5,
-                    }}
-                  >
-
-                    <CartesianGrid
-                      stroke="#333"
-                      horizontal={false}
-                    />
-
-                    <XAxis
-                      type="number"
-                      stroke="#777"
-                      tick={{
-                        fontSize: 10,
-                      }}
-                    />
-
-                    <YAxis
-                      type="category"
-                      dataKey="name"
-                      stroke="#aaa"
-                      tick={{
-                        fontSize: 11,
-                      }}
-                      width={58}
-                    />
-
+                  <PieChart>
                     <Tooltip
                       contentStyle={{
                         background: '#111',
-                        border:
-                          '1px solid #444',
+                        border: '1px solid #444',
                         color: '#fff',
+                        fontSize: 11,
                       }}
+                      formatter={(value: number | string, _name, props) => [
+                        value,
+                        props?.payload?.name ?? 'Events',
+                      ]}
                     />
 
-                    <Bar
+                    <Pie
+                      data={severityData}
                       dataKey="value"
-                      radius={[
-                        0,
-                        2,
-                        2,
-                        0,
-                      ]}
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={42}
+                      outerRadius={68}
+                      paddingAngle={2}
+                      stroke="#0d0d0d"
+                      strokeWidth={2}
                     >
-
-                      {severityData.map(
-                        (entry) => (
-                          <Cell
-                            key={entry.name}
-                            fill={entry.color}
-                          />
-                        )
-                      )}
-
-                    </Bar>
-
-                  </BarChart>
+                      {severityData.map((entry) => (
+                        <Cell
+                          key={entry.name}
+                          fill={entry.color}
+                        />
+                      ))}
+                    </Pie>
+                  </PieChart>
 
                 </ResponsiveContainer>
 
@@ -881,8 +1141,7 @@ function App() {
                   color="#e20d0d"
                   icon="⚠"
                   value={String(
-                    severityData[0]
-                      .value
+                    severityData[0].value
                   )}
                   label="CRITICAL"
                 />
@@ -891,8 +1150,7 @@ function App() {
                   color="#ff9f00"
                   icon="⚠"
                   value={String(
-                    severityData[1]
-                      .value
+                    severityData[1].value
                   )}
                   label="HIGH"
                 />
@@ -901,8 +1159,7 @@ function App() {
                   color="#fff000"
                   icon="⚠"
                   value={String(
-                    severityData[2]
-                      .value
+                    severityData[2].value
                   )}
                   label="MEDIUM"
                   dark
@@ -913,6 +1170,7 @@ function App() {
             </div>
 
           </div>
+
 
 
           {/* INFRASTRUCTURE */}
@@ -935,39 +1193,51 @@ function App() {
             >
 
               <BarChart
-                data={infraData}
-                layout="vertical"
-                margin={{
-                  left: 0,
-                  right: 22,
-                  top: 10,
-                  bottom: 4,
-                }}
-              >
+  data={infraData}
+  layout="vertical"
+  margin={{
+    left: 0,
+    right: 22,
+    top: 5,
+    bottom: 3,
+  }}
+>
+              
 
                 <CartesianGrid
                   stroke="#2d2d2d"
                   horizontal={false}
                 />
 
-                <XAxis
-                  type="number"
-                  domain={[0, 20]}
-                  stroke="#666"
-                  tick={{
-                    fontSize: 9,
-                  }}
-                />
+               <XAxis
+  type="number"
+  domain={[
+    0,
+    Math.max(
+      1,
+      Math.ceil(
+        Math.max(
+          ...infraData.map((item) => item.value)
+        ) * 1.15
+      )
+    ),
+  ]}
+  stroke="#666"
+  tick={{
+    fontSize: 8,
+  }}
+  allowDecimals={false}
+/>
 
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  stroke="#aaa"
-                  tick={{
-                    fontSize: 10,
-                  }}
-                  width={70}
-                />
+<YAxis
+  type="category"
+  dataKey="name"
+  stroke="#aaa"
+  tick={{
+    fontSize: 9,
+  }}
+  width={62}
+/>
 
                 <Bar
                   dataKey="value"
@@ -979,19 +1249,20 @@ function App() {
                   ]}
                 >
 
-                  {infraData.map(
-                    (entry, i) => (
-                      <Cell
-                        key={entry.name}
-                        fill={[
-                          '#ff1717',
-                          '#ff9f00',
-                          '#fff000',
-                          '#51e800',
-                        ][i]}
-                      />
-                    )
-                  )}
+                  {infraData.map((entry) => (
+                    <Cell
+                      key={entry.name}
+                      fill={
+                        entry.name.toLowerCase().includes('severe')
+                          ? '#ff1717'
+                          : entry.name.toLowerCase().includes('moderate')
+                            ? '#ff9f00'
+                            : entry.name.toLowerCase().includes('minor')
+                              ? '#fff000'
+                              : '#51e800'
+                      }
+                    />
+                  ))}
 
                 </Bar>
 
@@ -1022,54 +1293,55 @@ function App() {
 
               <div className="panel-title purple-title">
                 EVACUATION POINTS
+                <span className="panel-status">LIVE</span>
               </div>
 
-              <div className="gauge-wrap">
+              <div className="evacuation-content">
 
-                <PieChart
-                  width={220}
-                  height={135}
-                >
+                <div className="evacuation-number">
+                  <strong>
+                    {evacuationEvacuated.toLocaleString()}
+                  </strong>
+                  <span>PEOPLE EVACUATED</span>
+                </div>
 
-                  <Pie
-                    data={[
-                      { value: 330 },
-                      { value: 490 },
-                    ]}
-                    cx="50%"
-                    cy="100%"
-                    startAngle={180}
-                    endAngle={0}
-                    innerRadius={62}
-                    outerRadius={82}
-                    dataKey="value"
-                    stroke="none"
-                  >
+                <div className="evacuation-progress">
+                  <div
+                    className="evacuation-progress-fill"
+                    style={{
+                      width:
+                        evacuationCapacity > 0
+                          ? `${Math.min(
+                              (evacuationEvacuated /
+                                evacuationCapacity) *
+                                100,
+                              100
+                            )}%`
+                          : '0%',
+                    }}
+                  />
+                </div>
 
-                    <Cell fill="#ff9f00" />
-                    <Cell fill="#ddd" />
+                <div className="evacuation-meta">
+                  <span>
+                    {evacuationEvacuated.toLocaleString()} evacuated
+                  </span>
+                  <span>
+                    {evacuationCapacity.toLocaleString()} capacity
+                  </span>
+                </div>
 
-                  </Pie>
-
-                </PieChart>
-
-                <div className="gauge-value">
-                  330
+                <div className="evacuation-status">
+                  <span className="evacuation-status-dot" />
+                  LIVE EVACUATION MONITORING
                 </div>
 
               </div>
 
-              <div className="gauge-label">
-                People evacuated
-              </div>
-
-              <div className="gauge-scale">
-                <span>0</span>
-                <span>820</span>
-              </div>
-
               <div className="update-note">
-                Last update: just now
+                {dashboardLoading
+                  ? 'Updating live data...'
+                  : 'Live backend data'}
               </div>
 
             </div>
@@ -1083,33 +1355,27 @@ function App() {
                 AVAILABLE SUPPORT UNITS
               </div>
 
-              {supportUnits.map(
-                ([name, value]) => (
-
+              {supportUnits.length > 0 ? (
+                supportUnits.map(([name, value]) => (
                   <div
                     className="support-row"
                     key={name}
                   >
-
                     <span className="support-icon">
                       ✚
                     </span>
-
-                    <span>
-                      {name}
-                    </span>
-
-                    <b>
-                      {value}
-                    </b>
-
+                    <span>{name}</span>
+                    <b>{value}</b>
                   </div>
-
-                )
+                ))
+              ) : (
+                <div className="update-note">
+                  Live support-unit data unavailable.
+                </div>
               )}
 
               <div className="update-note right">
-                Last update: just now
+                {dashboardLoading ? 'Updating live data...' : 'Live backend data'}
               </div>
 
             </div>
@@ -1123,9 +1389,23 @@ function App() {
 
             <div className="panel details-panel">
 
-              <div className="panel-title">
+                            <div className="panel-title">
                 SELECTED LOCATION
               </div>
+
+              <select
+                className="location-select"
+                value={selected.id}
+                onChange={(event) =>
+                  setSelectedId(Number(event.target.value))
+                }
+              >
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id}>
+                    {loc.name}
+                  </option>
+                ))}
+              </select>
 
               <div className="selected-location">
 
@@ -1254,6 +1534,7 @@ function App() {
       )}
 
     </main>
+    </>
   );
 }
 
@@ -1310,15 +1591,8 @@ function Metric({
 }) {
   return (
     <div className="metric">
-
-      <span>
-        {label}
-      </span>
-
-      <strong>
-        {value}
-      </strong>
-
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }

@@ -29,6 +29,12 @@ FEATURE_CONFIG = {
     "rainfall_saturation_mm": 300.0,
     # Slopes above this (degrees) are considered fully unstable
     "slope_saturation_deg": 60.0,
+    # Historical landslide counts at/above this are considered maximally
+    # susceptible. Fixed constant (not derived from the current batch) so
+    # single-location, real-time inference normalizes the same way as
+    # batch training. Chosen above the observed max in the training
+    # sample (12) to leave headroom.
+    "historical_count_saturation": 20.0,
     # Composite risk feature weights (must sum to 1.0)
     "composite_weights": {
         "rainfall_risk":            0.30,
@@ -90,7 +96,8 @@ def engineer_features(
     df["slope_risk"] = _slope_risk(df["slope_degree"], cfg["slope_saturation_deg"])
     df["terrain_risk"] = _terrain_risk(df["terrain_roughness"])
     df["historical_susceptibility"] = _historical_susceptibility(
-        df["historical_landslide_count"]
+        df["historical_landslide_count"],
+        cfg["historical_count_saturation"],
     )
 
     # ── Interaction features ───────────────────────────────
@@ -180,17 +187,28 @@ def _terrain_risk(terrain_roughness: pd.Series) -> pd.Series:
     return terrain_roughness.clip(0.0, 1.0)
 
 
-def _historical_susceptibility(historical_count: pd.Series) -> pd.Series:
+def _historical_susceptibility(
+    historical_count: pd.Series,
+    saturation_count: float,
+) -> pd.Series:
     """
     Normalize historical landslide count using log-scaling to [0, 1].
     Interpretation: 0 = no history, 1 = very high historical frequency.
-    
+
     Log scaling avoids extreme locations dominating. Past landslides indicate
     vulnerable geology, soil type, and topography.
+
+    BUGFIX (SIH-26001 backlog item #1): this previously normalized each row
+    against the max of the *current batch* (`historical_count.max()`).
+    That's fine during training (large batches), but at real-time inference
+    the backend predicts one location at a time, so the batch max was
+    always equal to that single row's own value — collapsing the score to
+    1.0 for any location with history at all, regardless of how much.
+    Normalizing against a fixed `saturation_count` instead makes the score
+    consistent whether you're scoring 1,000 training rows or 1 live location.
     """
-    # Use global max from the series for relative normalization
     log_series = np.log1p(historical_count.clip(lower=0))
-    max_log = log_series.max()
+    max_log = np.log1p(saturation_count)
     if max_log == 0:
         return pd.Series(np.zeros(len(historical_count)), index=historical_count.index)
     return (log_series / max_log).clip(0.0, 1.0)

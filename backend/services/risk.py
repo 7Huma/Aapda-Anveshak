@@ -5,7 +5,25 @@ from services.slope import get_slope
 from services.snow import get_snow_cover
 from services.earth_engine import initialize_earth_engine
 
-from ml.prediction.predict import predict_risk
+from ml.prediction.predict import predict_risk, load_model
+
+
+# -----------------------------------------
+# Load the trained model ONCE per process.
+#
+# predict_risk() falls back to loading from disk itself if no
+# model is passed in — but that means every single location on
+# every dashboard refresh was hitting the filesystem/joblib.load
+# again. Loading it once here and reusing it avoids that.
+# -----------------------------------------
+_MODEL = None
+
+
+def _get_model():
+    global _MODEL
+    if _MODEL is None:
+        _MODEL = load_model()
+    return _MODEL
 
 
 def calculate_location_risk(location):
@@ -73,6 +91,7 @@ def calculate_location_risk(location):
 
     prediction = predict_risk(
         {
+            "location_id": location["id"],
             "rainfall_mm": rainfall,
             "soil_moisture": soil_moisture,
             "slope_degree": slope,
@@ -80,7 +99,8 @@ def calculate_location_risk(location):
             "historical_landslide_count":
                 historical_landslide_count,
             "elevation_m": elevation,
-        }
+        },
+        model=_get_model(),
     )
 
     # -----------------------------------------
