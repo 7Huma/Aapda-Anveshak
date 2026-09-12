@@ -220,3 +220,11 @@ def dashboard_summary():
             "low": 12450,
         },
     }
+
+@app.get("/")
+def root():
+    return {
+        "name": "Aapda Anveshak",
+        "description": "AI-Based Early Warning & Landslide Risk Monitoring System",
+        "status": "online"
+    }
