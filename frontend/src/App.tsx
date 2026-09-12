@@ -511,10 +511,10 @@ const fetchSupportUnits = async () => {
               ] as SupportUnitRow
           )
           .filter(
-            ([name, value]) =>
-              name &&
-              Number.isFinite(value)
-          )
+  ({ name, value }: { name: string; value: string }) =>
+    Boolean(name && value)
+)
+          
       : [];
 
     setSupportUnits(units);
